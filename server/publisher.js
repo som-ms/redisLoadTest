@@ -16,7 +16,7 @@ var parentPath = '/tmp/pub/';
 // )
 
 const publisher = redis.createClient(6380, 'fluidloadtest.redis.cache.windows.net',
-  {auth_pass: '2AOl81CmEZOOWC9HRvSaCUGRUgggg06CFRM8cLs1hJs=', tls: {servername: 'fluidloadtest.redis.cache.windows.net'}});
+  { auth_pass: '2AOl81CmEZOOWC9HRvSaCUGRUgggg06CFRM8cLs1hJs=', tls: { servername: 'fluidloadtest.redis.cache.windows.net' } });
 
 publisher.on('connect', function () {
   console.log('Redis client(p) connected for channel: ' + channelName);

@@ -55,7 +55,8 @@ function validateMessage(message) {
     // message should be in order
     try {
         var messageObject = JSON.parse(message);
-        if (currentMaximum < messageObject.content) {
+
+        if ((currentMaximum+1) == messageObject.content ) {
             currentMaximum = messageObject.content;
         } else {
             var errorMessage = "Message is out of order.\n" + "Current Maximum:" + currentMaximum + " Message: " + message + "\n";
