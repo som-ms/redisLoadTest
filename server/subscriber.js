@@ -41,13 +41,20 @@ sub.subscribe(channelName)
 sub.on("message", (channel, message) => {
     var messageObject = JSON.parse(message);
     //console.log(JSON.stringify(messageObject))
-
+    validateLastMessageSignal(messageObject);
     writeToFile(parentPath + dataFile, message + "\n");
 
     validateMessage(message);
 
 })
 
+function validateLastMessageSignal(messageObject){
+    if(messageObject.content == -1){
+        validateTotalMessage();
+        writeToFile(parentPath+dataFile, "Subscriber finished listening\n")
+        process.exit();
+    }
+}
 function writeToFile(path, message) {
     fs.appendFileSync(path, message);
 }
@@ -55,8 +62,8 @@ function validateMessage(message) {
     // message should be in order
     try {
         var messageObject = JSON.parse(message);
-
-        if ((currentMaximum+1) == messageObject.content ) {
+        var actualContent = currentMaximum + 1;
+        if (actualContent == messageObject.content ) {
             currentMaximum = messageObject.content;
         } else {
             var errorMessage = "Message is out of order.\n" + "Current Maximum:" + currentMaximum + " Message: " + message + "\n";
@@ -71,7 +78,7 @@ function validateMessage(message) {
 }
 
 function validateTotalMessage() {
-    var expectedCount = (constants.NUM_OF_MESSAGES * constants.TOTAL_TIME_PUBLISHER_IN_MINUTE) - 1;         // starting from index 0
+    var expectedCount = (constants.NUM_OF_MESSAGES * constants.TOTAL_TIME_PUBLISHER_IN_SECONDS) - 1;         // starting from index 0
     //console.log("expectedCount: " + expectedCount)
     //console.log("currentMaximum : " + currentMaximum)
     if (expectedCount > currentMaximum) {
@@ -79,11 +86,11 @@ function validateTotalMessage() {
     } else if (expectedCount < currentMaximum) {
         writeToFile(parentPath + logFile, "Data duplication..!!\n" + "Expected count: " + expectedCount + " Actual count: " + currentMaximum + "\n");
     } else {
-        writeToFile(parentPath + dataFile, "Subscriber finished receiving");
+        writeToFile(parentPath + dataFile, "Subscriber finished receiving\n");
     }
 }
 
-setTimeout(function () {
-    console.log("Subscriber finished\n")
-    validateTotalMessage();
-}, 30000);
+// setTimeout(function () {
+//     console.log("Subscriber finished\n")
+//     validateTotalMessage();
+// }, 30000);
