@@ -1,5 +1,5 @@
 {
-  "name": "loadtest",
+  "name": "redisloadtest",
   "version": "1.0.0",
   "description": "",
   "main": "subscriber.js",
