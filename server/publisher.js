@@ -8,54 +8,99 @@ var channelName = myargs[0];
 var totalMessagesSent = 0;
 var parentPath = '/tmp/pub/';
 const appInsights = require('applicationinsights');
-appInsights.setup('e500e906-a83a-4cc2-af5f-fbe3d4b4fcd8').start();
+const {port,pwd,appInsightKey} = require('./config');
+appInsights.setup(appInsightKey).start();
 var client = appInsights.defaultClient;
 
-// const publisher = redis.createClient(6380, 'fluidloadtest.redis.cache.windows.net',
-//   { auth_pass: '2AOl81CmEZOOWC9HRvSaCUGRUgggg06CFRM8cLs1hJs=', tls: { servername: 'fluidloadtest.redis.cache.windows.net' } });
 
-  const publisher = new Redis({
-    port: 6380,
-    host: "fluidloadtest.redis.cache.windows.net",
-    family: 4,
-    password: "2AOl81CmEZOOWC9HRvSaCUGRUgggg06CFRM8cLs1hJs=",
-    connectTimeout: 20000,
-    tls:{
-      servername: "fluidloadtest.redis.cache.windows.net"
+const nodes = [
+  {
+    port: port,
+    host: "fluidloadtest.redis.cache.windows.net"
+  }
+]
+
+
+const publisher = new Redis.Cluster(
+  nodes,
+  {
+    enableOfflineQueue: false,
+    enableReadyCheck: true,
+    slotsRefreshTimeout: 1000,
+    dnsLookup: (address, callback) => callback(null, address),
+    redisOptions: {
+      family: 4,
+      tls: {
+        servername: "fluidloadtest.redis.cache.windows.net"
+      },
+      showFriendlyErrorStack: true,
+      enableAutoPipelining: true,
+      connectTimeout: 20000,
+      password: pwd
     }
-});
+  }
+);
 
 publisher.on('connect', function () {
   var connectMessage = 'Redis client(p) connected for channel: ' + channelName;
   console.log(connectMessage);
-  client.trackEvent("redisPubConMsg", connectMessage);
+  var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection established", "channelId": channelName };
+  client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
 })
 
-publisher.on('error', function () {
+publisher.on('error', (err) => {
   var connectFailMessage = 'Something went wrong with redis connection channel: ' + channelName + "\n";
-  client.trackEvent({name: "redisPubConnError", value: connectFailMessage});
+  console.log(connectFailMessage);
+  // client.trackEvent({name: "redisPubConnError", value: connectFailMessage});
+  var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err, "channelId": channelName };
+  client.trackEvent({ name: "redisPubConnError", properties: propertySet });
 })
+
+process.on('unhandledRejection', error => {
+  var propertySet = { "errorMessage": error.message, "channelId": channelName };
+  client.trackEvent({ name: "unHandledErrorPub", properties: propertySet });
+});
 
 function publishMessage(channelName) {
   var currentMessagePointer = 0;
   while (currentMessagePointer < constants.NUM_OF_MESSAGES) {   // total number of messages published at a single time
     var currentMessage = totalMessagesSent + currentMessagePointer;
-    var messageObj = new Message(channelName, currentMessage,"false");
-    publisher.publish(channelName, JSON.stringify(messageObj));
-
+    var messageObj = new Message(channelName, currentMessage, "false");
+    // publishData(channelName,messageObj);
+    // try {
+      publisher.publish(channelName, JSON.stringify(messageObj));
+    // } catch (err) {
+    //   new Promise((_, reject) => reject(new Error('woops'))).
+    //     catch(error => { console.log('caught', error.message); });
+    // }
     fs.appendFileSync(parentPath + channelName + "_data.txt", JSON.stringify(messageObj) + "\n")
     //console.log("message sent: " + JSON.stringify(messageObj));
     currentMessagePointer++;
   }
   totalMessagesSent += currentMessagePointer;
+  sendMetric(totalMessagesSent);
 }
 
-
+function sendMetric(totalMessagesSent) {
+  if (totalMessagesSent % 100 == 0) {
+    var propertySet = { "channelId": channelName };
+    var metrics = { "MessagesCount": totalMessagesSent };
+    client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
+  }
+}
 const t = setInterval(publishMessage, constants.MESSAGE_PUBLISH_INTERVAL, channelName)
 
 setTimeout(function () {
   fs.appendFileSync(parentPath + channelName + "_data.txt", "Publisher finished publishing messages\n");
   clearInterval(t);
-  publisher.publish(channelName, JSON.stringify(new Message(channelName,(totalMessagesSent-1),"true")));  // send signal to subscriber to finish
+  // publishData(channelName,new Message(channelName,(totalMessagesSent-1),"true"));
+  publisher.publish(channelName, JSON.stringify(new Message(channelName, (totalMessagesSent - 1), "true")));  // send signal to subscriber to finish
+  // send completion event
+  var remainingMessages = totalMessagesSent % 100;
+  var propertySet = { "channelId": channelName };
+  var metrics = { "MessagesCount": remainingMessages };
+  client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
+  client.trackEvent({ name: "pubEventCompletion", properties: propertySet });
   process.exit();
-}, constants.TOTAL_TIME_PUBLISHER);
+}, constants.TOTAL_TIME_PUBLISHER)
+

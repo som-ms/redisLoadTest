@@ -8,59 +8,98 @@ const { AssertionError } = require('assert');
 var myargs = process.argv.slice(2);     // channelName, subscriberId
 var channelName = myargs[0];
 var subscriberId = myargs[1];
-
+const {port,pwd,appInsightKey} = require('./config');
 
 const appInsights = require('applicationinsights');
-appInsights.setup('e500e906-a83a-4cc2-af5f-fbe3d4b4fcd8').start();
+appInsights.setup(appInsightKey).start();
 appInsights.defaultClient.context.tags[appInsights.defaultClient.context.keys.cloudRole] = "Role1";
 var logFile = channelName + "_" + subscriberId + "_log.txt";
 var dataFile = channelName + "_" + subscriberId + "_data.txt";
 var parentPath = '/tmp/sub/';
 
 var client = appInsights.defaultClient;
-// var context = appInsights.getCorrelationContext();
 
-// const sub = redis.createClient(6380, 'fluidloadtest.redis.cache.windows.net',
-//   {auth_pass: '2AOl81CmEZOOWC9HRvSaCUGRUgggg06CFRM8cLs1hJs=', tls: {servername: 'fluidloadtest.redis.cache.windows.net'}});
-const sub = new Redis({
-    port: 6380,
-    host: "fluidloadtest.redis.cache.windows.net",
-    family: 4,
-    password: "2AOl81CmEZOOWC9HRvSaCUGRUgggg06CFRM8cLs1hJs=",
-    connectTimeout: 20000,
-    tls:{
-        servername: "fluidloadtest.redis.cache.windows.net"
-      }
+const nodes = [
+    {
+      port: port,
+      host: "fluidloadtest.redis.cache.windows.net"
+    }
+  ]
+const sub = new Redis.Cluster(
+    nodes,
+    {
+        enableOfflineQueue: false,
+        enableReadyCheck: true,
+        slotsRefreshTimeout: 1000,
+        dnsLookup: (address, callback) => callback(null, address),
+        redisOptions: {
+            family: 4,
+            tls: {
+                servername: "fluidloadtest.redis.cache.windows.net"
+            },
+            showFriendlyErrorStack: true,
+            enableAutoPipelining: true,
+            connectTimeout: 20000,
+            password: pwd
+        }
+    }
+);
+
+sub.subscribe(channelName, (err,count) =>{
+    if(err){
+        console.error("Failed to subscribe");
+        console.log(err);
+    } else {
+        console.log("Subscribed successfully to ${count} channel");
+    }
 });
+
+
 sub.on('connect', function () {
     var connectMessage = 'Redis client(s) connected for channel: ' + channelName + "\n";
-    console.log(connectMessage)
-    client.trackEvent("redisSubConMsg", connectMessage);
+    var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection established", "channelId": channelName, "subscriberId": subscriberId };
+    client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
     writeToFile(parentPath + dataFile, connectMessage)
 })
-
-sub.on('error', function () {
-    var connectFailMessage = 'Something went wrong with redis connection channel: ' + channelName + " and subscriberId: " + subscriberId + "\n";
-    // console.log(connectFailMessage);
-    client.trackEvent({name: "redisSubConnError", value: connectFailMessage});
+sub.on("error", (err) => {
+    var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err, "channelId": channelName, "subscriberId": subscriberId };
+    client.trackEvent({ name: "redisSubConnError", properties: propertySet });
 })
 
+// process.on('unhandledRejection', error => {
+//     var propertySet = {"errorMessage" : error.message, "channelId": channelName, "subscriberId":subscriberId};
+//     client.trackEvent({name: "unHandledErrorSub", properties: propertySet});
+// });
+
 var currentMaximum = -1;        // to make initial condition true
-sub.subscribe(channelName)
+
 sub.on("message", (channel, message) => {
+    console.log("listening to message");
+    console.log(message);
     var messageObject = JSON.parse(message);
-    //console.log(JSON.stringify(messageObject))
+    sendMetric(currentMaximum);
     validateLastMessageSignal(messageObject);
     writeToFile(parentPath + dataFile, message + "\n");
-
     validateMessage(message);
 
 })
 
-function validateLastMessageSignal(messageObject){
-    if(messageObject.signal == "true"){
+function sendMetric(currentMaximum) {
+    if (currentMaximum == 99) {
+        var messageReceived = 100;
+        var propertySet = { "currentMaximum": currentMaximum, "MessageReceived": messageReceived, "channelId": channelName, "subscriberId": subscriberId };
+        var metrics = { "MessagesCount": messageReceived };
+        client.trackEvent({ name: "InProgressSub", properties: propertySet, measurements: metrics });
+    }
+}
+function validateLastMessageSignal(messageObject) {
+    if (messageObject.signal == "true") {
         validateTotalMessage(messageObject.content);
-        writeToFile(parentPath+dataFile, "Subscriber finished listening\n")
+        var propertySet = { "message":"Subscriber finished","currentMaximum": currentMaximum, "MessageReceived": messageReceived, "channelId": channelName, "subscriberId": subscriberId };
+        var metrics = { "MessagesCount": messageReceived };
+        client.trackEvent({ name: "InProgressSub", properties: propertySet, measurements: metrics });
+        client.trackEvent({name: "subEventCompletion", properties: propertySet});
+        writeToFile(parentPath + dataFile, "Subscriber finished listening\n")
         process.exit();
     }
 }
@@ -69,23 +108,19 @@ function writeToFile(path, message) {
 }
 function validateMessage(message) {
     // message should be in order
-    try {
-        var messageObject = JSON.parse(message);
-        var actualContent = currentMaximum + 1;
-        if (actualContent == messageObject.content ) {
-            currentMaximum = messageObject.content;
-        } else {
-            var errorMessage = "Message is out of order.\n" + "Current Maximum:" + currentMaximum + " Message: " + message + "\n";
-            client.trackEvent({name: "messageOrder", value: errorMessage});
-            writeToFile(parentPath + logFile, errorMessage);
-            currentMaximum = messageObject.content;     //so that difference with the next number must be 1
-        }
-        //console.log("currentMaximum is: " + currentMaximum)
 
-    } catch (err) {
-        console.log(err);
-        client.trackEvent({name: "validationError", value: err});
+    var messageObject = JSON.parse(message);
+    var actualContent = currentMaximum + 1;
+    if (actualContent == messageObject.content) {
+        currentMaximum = messageObject.content;
+    } else {
+        var propertySet = { "errorMessage": "Message is out of order", "currentMaximum": currentMaximum, "content": message, "channelId": channelName, "subscriberId": subscriberId };
+        // var errorMessage = "Message is out of order.\n" + "Current Maximum:" + currentMaximum + " Message: " + message + "\n";
+        client.trackEvent({ name: "messageOrder", properties: propertySet });
+        writeToFile(parentPath + logFile, errorMessage);
+        currentMaximum = messageObject.content;     //so that difference with the next number must be 1
     }
+
 }
 
 function validateTotalMessage(lastMessageDelivered) {
@@ -93,16 +128,19 @@ function validateTotalMessage(lastMessageDelivered) {
     console.log("expectedCount: " + expectedCount)
     console.log("currentMaximum : " + currentMaximum)
     if (expectedCount > currentMaximum) {
-        var dataLostMessage = "Data lost..!!\n" + "Expected count: " + expectedCount + " Actual count: " + currentMaximum + "\n";
-        client.trackEvent({name: "totalDataValidation", value: dataLostMessage});
+        var propertySet = { "errorMessage": "Data Lost", "currentMaximum": currentMaximum, "ExpectedCount": expectedCount, "channelId": channelName, "subscriberId": subscriberId };
+        // var dataLostMessage = "Data lost..!!\n" + "Expected count: " + expectedCount + " Actual count: " + currentMaximum + "\n";
+        client.trackEvent({ name: "totalDataValidation", properties: propertySet });
         writeToFile(parentPath + logFile, "Data lost..!!\n" + "Expected count: " + expectedCount + " Actual count: " + currentMaximum + "\n");
     } else if (expectedCount < currentMaximum) {
-        var dataDuplicationMessage = "Data duplication..!!\n" + "Expected count: " + expectedCount + " Actual count: " + currentMaximum + "\n";
-        client.trackEvent({name: "totalDataValidation", value: dataDuplicationMessage});
+        var propertySet = { "errorMessage": "Data Duplication", "currentMaximum": currentMaximum, "ExpectedCount": expectedCount, "channelId": channelName, "subscriberId": subscriberId };
+        // var dataDuplicationMessage = "Data duplication..!!\n" + "Expected count: " + expectedCount + " Actual count: " + currentMaximum + "\n";
+        client.trackEvent({ name: "totalDataValidation", properties: propertySet });
         writeToFile(parentPath + logFile, "Data duplication..!!\n" + "Expected count: " + expectedCount + " Actual count: " + currentMaximum + "\n");
     } else {
+        var propertySet = { "errorMessage": "null", "currentMaximum": currentMaximum, "ExpectedCount": expectedCount, "channelId": channelName, "subscriberId": subscriberId };
         var dataSuccessMessage = "No data lost for subscriber: " + subscriberId;
-        client.trackEvent({name: "totalDataValidation", value: dataSuccessMessage});
+        client.trackEvent({ name: "totalDataValidation", properties: propertySet });
         writeToFile(parentPath + dataFile, "Subscriber finished receiving\n");
     }
 }
