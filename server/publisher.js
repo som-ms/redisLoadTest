@@ -3,12 +3,12 @@ var constants = require('./constants');
 var Message = require('./Message')
 var myargs = process.argv.slice(2);   // channelName
 var channelName = myargs[0];
+var timeInMinutes = myargs[1];
 var totalMessagesSent = 0;
 const appInsights = require('applicationinsights');
 const { port, pwd, appInsightKey } = require('./config');
 appInsights.setup(appInsightKey).start();
 var client = appInsights.defaultClient;
-
 const nodes = [
   {
     port: port,
@@ -60,7 +60,6 @@ publisher.on('error', (err) => {
 process.on('unhandledRejection', error => {
   var propertySet = { "errorMessage": error.message, "channelId": channelName };
   client.trackEvent({ name: "unHandledErrorPub", properties: propertySet });
-  console.log(error);
 });
 
 function publishMessage(channelName) {
@@ -86,6 +85,7 @@ function sendMetric(totalMessagesSent) {
 
 function startExecution() {
   const t = setInterval(publishMessage, constants.MESSAGE_PUBLISH_INTERVAL, channelName)
+  var TotalRunTimePublisherInSeconds = timeInMinutes * 60 * 1000;
   setTimeout(function () {
     clearInterval(t);
     publisher.publish(channelName, JSON.stringify(new Message(channelName, (totalMessagesSent - 1), "kill")));  // send signal to subscriber to finish
@@ -96,9 +96,9 @@ function startExecution() {
     client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
     client.trackEvent({ name: "pubEventCompletion", properties: propertySet });
 
-    var exitTime = constants.TOTAL_TIME_PUBLISHER * 2;
+    var exitTime = TotalRunTimePublisherInSeconds * 2;
     setTimeout(exitProcess, exitTime)
-  }, constants.TOTAL_TIME_PUBLISHER)
+  }, constants.TotalRunTimePublisherInSeconds)
 }
 
 function exitProcess() {
