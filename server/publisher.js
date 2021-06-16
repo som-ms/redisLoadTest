@@ -1,17 +1,13 @@
-const express = require('express');
 const Redis = require('ioredis');
-const fs = require('fs')
 var constants = require('./constants');
 var Message = require('./Message')
 var myargs = process.argv.slice(2);   // channelName
 var channelName = myargs[0];
 var totalMessagesSent = 0;
-var parentPath = '/tmp/pub/';
 const appInsights = require('applicationinsights');
-const {port,pwd,appInsightKey} = require('./config');
+const { port, pwd, appInsightKey } = require('./config');
 appInsights.setup(appInsightKey).start();
 var client = appInsights.defaultClient;
-
 
 const nodes = [
   {
@@ -19,7 +15,6 @@ const nodes = [
     host: "fluidloadtest.redis.cache.windows.net"
   }
 ]
-
 
 const publisher = new Redis.Cluster(
   nodes,
@@ -41,21 +36,23 @@ const publisher = new Redis.Cluster(
   }
 );
 
+// once redis is ready to take commands, we start execution else it pops up an error saying "Cluster isn't ready and enableOfflineQueue options is false"
+publisher.on('ready', function () {
+  var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection ready. Starting execution", "channelId": channelName };
+  client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
+  startExecution();
+});
+
+
 publisher.on('connect', function () {
   var connectMessage = 'Redis client(p) connected for channel: ' + channelName;
-  // console.log(connectMessage);
   var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection established", "channelId": channelName };
   client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
 })
 
-// publisher.on('ready', function(){
-//   console.log("ready")
-// })
+
 
 publisher.on('error', (err) => {
-  var connectFailMessage = 'Something went wrong with redis connection channel: ' + channelName + "\n";
-  // console.log(connectFailMessage);
-  // client.trackEvent({name: "redisPubConnError", value: connectFailMessage});
   var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err.message, "channelId": channelName };
   client.trackEvent({ name: "redisPubConnError", properties: propertySet });
 })
@@ -63,6 +60,7 @@ publisher.on('error', (err) => {
 process.on('unhandledRejection', error => {
   var propertySet = { "errorMessage": error.message, "channelId": channelName };
   client.trackEvent({ name: "unHandledErrorPub", properties: propertySet });
+  console.log(error);
 });
 
 function publishMessage(channelName) {
@@ -70,15 +68,7 @@ function publishMessage(channelName) {
   while (currentMessagePointer < constants.NUM_OF_MESSAGES) {   // total number of messages published at a single time
     var currentMessage = totalMessagesSent + currentMessagePointer;
     var messageObj = new Message(channelName, currentMessage, "leave");
-    // publishData(channelName,messageObj);
-    // try {
-      publisher.publish(channelName, JSON.stringify(messageObj));
-    // } catch (err) {
-    //   new Promise((_, reject) => reject(new Error('woops'))).
-    //     catch(error => { console.log('caught', error.message); });
-    // }
-    //fs.appendFileSync(parentPath + channelName + "_data.txt", JSON.stringify(messageObj) + "\n")
-    //console.log("message sent: " + JSON.stringify(messageObj));
+    publisher.publish(channelName, JSON.stringify(messageObj));
     currentMessagePointer++;
   }
   totalMessagesSent += currentMessagePointer;
@@ -88,37 +78,29 @@ function publishMessage(channelName) {
 function sendMetric(totalMessagesSent) {
   if (totalMessagesSent % 100 == 0) {
     var propertySet = { "channelId": channelName };
-    var metrics = { "MessagesCount": totalMessagesSent };
+    var metrics = { "MessageBatchCount": 100, "totalMessageCount": totalMessagesSent };
     client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
   }
 }
 
 
-setTimeout(executeAfterDelay, 40000);
-
-function executeAfterDelay(){
+function startExecution() {
   const t = setInterval(publishMessage, constants.MESSAGE_PUBLISH_INTERVAL, channelName)
-
   setTimeout(function () {
-    // fs.appendFileSync(parentPath + channelName + "_data.txt", "Publisher finished publishing messages\n");
-    // publishData(channelName,new Message(channelName,(totalMessagesSent-1),"true"));
+    clearInterval(t);
     publisher.publish(channelName, JSON.stringify(new Message(channelName, (totalMessagesSent - 1), "kill")));  // send signal to subscriber to finish
     // send completion event
     var remainingMessages = totalMessagesSent % 100;
-    // console.log(remainingMessages)
     var propertySet = { "channelId": channelName };
-    var metrics = { "MessagesCount": remainingMessages };
+    var metrics = { "MessageBatchCount": remainingMessages, "totalMessageCount": totalMessagesSent };
     client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
     client.trackEvent({ name: "pubEventCompletion", properties: propertySet });
-    clearInterval(t);
-    var exitTime = constants.TOTAL_TIME_PUBLISHER*2;
-    setTimeout(exitProcess,exitTime)
+
+    var exitTime = constants.TOTAL_TIME_PUBLISHER * 2;
+    setTimeout(exitProcess, exitTime)
   }, constants.TOTAL_TIME_PUBLISHER)
 }
 
-
-function exitProcess(){
+function exitProcess() {
   process.exit()
 }
-
-
