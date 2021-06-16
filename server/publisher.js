@@ -48,11 +48,15 @@ publisher.on('connect', function () {
   client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
 })
 
+publisher.on('ready', function(){
+  console.log("ready")
+})
+
 publisher.on('error', (err) => {
   var connectFailMessage = 'Something went wrong with redis connection channel: ' + channelName + "\n";
   console.log(connectFailMessage);
   // client.trackEvent({name: "redisPubConnError", value: connectFailMessage});
-  var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err, "channelId": channelName };
+  var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err.message, "channelId": channelName };
   client.trackEvent({ name: "redisPubConnError", properties: propertySet });
 })
 
@@ -88,19 +92,26 @@ function sendMetric(totalMessagesSent) {
     client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
   }
 }
-const t = setInterval(publishMessage, constants.MESSAGE_PUBLISH_INTERVAL, channelName)
 
-setTimeout(function () {
-  fs.appendFileSync(parentPath + channelName + "_data.txt", "Publisher finished publishing messages\n");
-  clearInterval(t);
-  // publishData(channelName,new Message(channelName,(totalMessagesSent-1),"true"));
-  publisher.publish(channelName, JSON.stringify(new Message(channelName, (totalMessagesSent - 1), "true")));  // send signal to subscriber to finish
-  // send completion event
-  var remainingMessages = totalMessagesSent % 100;
-  var propertySet = { "channelId": channelName };
-  var metrics = { "MessagesCount": remainingMessages };
-  client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
-  client.trackEvent({ name: "pubEventCompletion", properties: propertySet });
-  process.exit();
-}, constants.TOTAL_TIME_PUBLISHER)
+
+setTimeout(executeAfterDelay, 60000);
+
+function executeAfterDelay(){
+  const t = setInterval(publishMessage, constants.MESSAGE_PUBLISH_INTERVAL, channelName)
+
+  setTimeout(function () {
+    fs.appendFileSync(parentPath + channelName + "_data.txt", "Publisher finished publishing messages\n");
+    clearInterval(t);
+    // publishData(channelName,new Message(channelName,(totalMessagesSent-1),"true"));
+    publisher.publish(channelName, JSON.stringify(new Message(channelName, (totalMessagesSent - 1), "true")));  // send signal to subscriber to finish
+    // send completion event
+    var remainingMessages = totalMessagesSent % 100;
+    var propertySet = { "channelId": channelName };
+    var metrics = { "MessagesCount": remainingMessages };
+    client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
+    client.trackEvent({ name: "pubEventCompletion", properties: propertySet });
+    process.exit();
+  }, constants.TOTAL_TIME_PUBLISHER)
+}
+
 

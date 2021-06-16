@@ -19,6 +19,8 @@ var parentPath = '/tmp/sub/';
 
 var client = appInsights.defaultClient;
 
+
+
 const nodes = [
     {
       port: port,
@@ -45,37 +47,47 @@ const sub = new Redis.Cluster(
     }
 );
 
-sub.subscribe(channelName, (err,count) =>{
-    if(err){
-        console.error("Failed to subscribe");
-        console.log(err);
-    } else {
-        console.log("Subscribed successfully to ${count} channel");
-    }
-});
-
 
 sub.on('connect', function () {
     var connectMessage = 'Redis client(s) connected for channel: ' + channelName + "\n";
+    console.log("connect")
     var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection established", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
     writeToFile(parentPath + dataFile, connectMessage)
 })
 sub.on("error", (err) => {
-    var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err, "channelId": channelName, "subscriberId": subscriberId };
+    var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err.message, "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnError", properties: propertySet });
 })
 
-// process.on('unhandledRejection', error => {
-//     var propertySet = {"errorMessage" : error.message, "channelId": channelName, "subscriberId":subscriberId};
-//     client.trackEvent({name: "unHandledErrorSub", properties: propertySet});
-// });
+sub.on('ready', function(){
+    console.log("readY")
+});
+
+function executeAfterDelay(){
+    sub.subscribe(channelName, (err,count) =>{
+        if(err){
+            var propertySet = {"errorMessage" : "couldn't subscribe to channel" , "descriptiveMessage" : err.message, "channelId": channelName};
+            client.trackEvent({name: "redisSubConnError", properties: propertySet});
+            console.error("Failed to subscribe to channel " + channelName);
+            console.log(err.message);
+        } else {
+            console.log("Subscribed successfully to channel " + count);
+        }
+    });
+}
+
+setTimeout(executeAfterDelay, 20000);
+
+
+process.on('unhandledRejection', error => {
+    var propertySet = {"errorMessage" : error.message, "channelId": channelName, "subscriberId":subscriberId};
+    client.trackEvent({name: "unHandledErrorSub", properties: propertySet});
+});
 
 var currentMaximum = -1;        // to make initial condition true
 
 sub.on("message", (channel, message) => {
-    console.log("listening to message");
-    console.log(message);
     var messageObject = JSON.parse(message);
     sendMetric(currentMaximum);
     validateLastMessageSignal(messageObject);
@@ -115,7 +127,7 @@ function validateMessage(message) {
         currentMaximum = messageObject.content;
     } else {
         var propertySet = { "errorMessage": "Message is out of order", "currentMaximum": currentMaximum, "content": message, "channelId": channelName, "subscriberId": subscriberId };
-        // var errorMessage = "Message is out of order.\n" + "Current Maximum:" + currentMaximum + " Message: " + message + "\n";
+        var errorMessage = "Message is out of order.\n" + "Current Maximum:" + currentMaximum + " Message: " + message + "\n";
         client.trackEvent({ name: "messageOrder", properties: propertySet });
         writeToFile(parentPath + logFile, errorMessage);
         currentMaximum = messageObject.content;     //so that difference with the next number must be 1
