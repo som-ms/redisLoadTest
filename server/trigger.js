@@ -7,11 +7,10 @@ for (let i = 0; i < 10; i++) {
     console.log("subscriber started" + i)
 }
 
-console.log("subscriber started")
 
 setTimeout(startPublisher, 20000);
 
 function startPublisher(){
-    spawn('node', ['./server/publisher.js', channelName]);
+    spawn('node', ['./server/publisher.js', channelName, 30]);  // time to publish
     console.log("publisher started")
 }
