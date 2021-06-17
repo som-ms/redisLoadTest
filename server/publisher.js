@@ -108,10 +108,10 @@ function startExecution() {
 
 function lastExecution(t) {
   clearInterval(t);
-  publisher.publish(channelName, JSON.stringify(new Message(channelName, (totalMessagesSent - 1), "kill")));  // send signal to subscriber to finish
+  publisher.publish(channelName, JSON.stringify(new Message(channelName, totalMessagesSent, "kill")));  // send signal to subscriber to finish
   // send completion event
   var remainingMessages = totalMessagesSent % 100;
-  var propertySet = { "channelId": channelName };
+  var propertySet = { "channelId": channelName, "totalMessageSent" : totalMessagesSent };
   var metrics = { "MessageBatchSent": remainingMessages, "totalMessageSent": totalMessagesSent };
   client.trackEvent({ name: "InProgressPub", properties: propertySet, measurements: metrics });
   client.trackEvent({ name: "pubEventCompletion", properties: propertySet });

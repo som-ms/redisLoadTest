@@ -110,7 +110,7 @@ sub.on("message", (channel, message) => {
 
 function sendMetric(currentMaximum, totalMessageReceived) {
     if (totalMessageReceived % 100 == 0) {
-        // var totalReceived = currentMaximum + 1;
+        currentMaximum++;
         var propertySet = { "currentMaximum": currentMaximum, "MessageBatchReceived": 100, "totalMessageReceived": totalMessageReceived, "channelId": channelName, "subscriberId": subscriberId };
         var metrics = { "MessageBatchReceived": 100, "totalMessageReceived": totalMessageReceived };
         client.trackEvent({ name: "InProgressSub", properties: propertySet, measurements: metrics });
