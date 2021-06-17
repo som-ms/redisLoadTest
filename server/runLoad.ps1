@@ -3,11 +3,11 @@ function RunLoadTest {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $false)]
-        [int]$TotalNumOfChannels = 2,      #100
+        [int]$TotalNumOfChannels = 20,      #100
 		[Parameter(Mandatory = $false)]
-        [int]$NumOfSubscribersPerChannel = 3,
+        [int]$NumOfSubscribersPerChannel = 10,
         [Parameter(Mandatory = $false)]
-        [int]$TotalRunTimePublisherInMinutes = 5,
+        [int]$TotalRunTimePublisherInMinutes = 30,
         [Parameter(Mandatory = $false)]
         [string]$TestUid = [guid]::NewGuid()
     ) 
@@ -15,6 +15,7 @@ function RunLoadTest {
 	
     Write-Host "TotalNumOfChannels ": $TotalNumOfChannels;
 	createSubscribers -TotalNumOfChannels $TotalNumOfChannels -NumOfSubscribersPerChannel $NumOfSubscribersPerChannel
+    Start-Sleep -s 60
     createPublishers -TotalNumOfChannels $TotalNumOfChannels -TotalRunTimePublisherInMinutes $TotalRunTimePublisherInMinutes
 
 }
