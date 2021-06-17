@@ -5,7 +5,9 @@ function RunLoadTest {
         [Parameter(Mandatory = $false)]
         [int]$TotalNumOfChannels = 2,      #100
 		[Parameter(Mandatory = $false)]
-        [int]$NumOfSubscribersPerChannel = 2,
+        [int]$NumOfSubscribersPerChannel = 3,
+        [Parameter(Mandatory = $false)]
+        [int]$TotalRunTimePublisherInMinutes = 5,
         [Parameter(Mandatory = $false)]
         [string]$TestUid = [guid]::NewGuid()
     ) 
@@ -13,7 +15,7 @@ function RunLoadTest {
 	
     Write-Host "TotalNumOfChannels ": $TotalNumOfChannels;
 	createSubscribers -TotalNumOfChannels $TotalNumOfChannels -NumOfSubscribersPerChannel $NumOfSubscribersPerChannel
-    createPublishers -TotalNumOfChannels $TotalNumOfChannels
+    createPublishers -TotalNumOfChannels $TotalNumOfChannels -TotalRunTimePublisherInMinutes $TotalRunTimePublisherInMinutes
 
 }
 
@@ -47,14 +49,16 @@ function createPublishers{
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $true)]
-        [int]$TotalNumOfChannels
+        [int]$TotalNumOfChannels,
+        [Parameter(Mandatory = $true)]
+        [int]$TotalRunTimePublisherInMinutes
     )
 
     $channel = 0;
   
     while($channel -ne $TotalNumOfChannels){
         Write-Host "node publisher.js " $channel;
-        Start-Process -NoNewWindow -FilePath 'C:\Program Files (x86)\nodejs\node.exe' -ArgumentList '.\publisher.js', "$channel"
+        Start-Process -NoNewWindow -FilePath 'C:\Program Files (x86)\nodejs\node.exe' -ArgumentList '.\publisher.js', "$channel" , "$TotalRunTimePublisherInMinutes"
         $channel++;
     }
 

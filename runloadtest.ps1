@@ -3,11 +3,11 @@ function RunLoadTest {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $false)]
-        [int]$TotalNumOfChannels = 1,
+        [int]$TotalNumOfChannels = 2,
         [Parameter(Mandatory = $false)]
-        [int]$NumOfSubscribersPerChannel = 1,
+        [int]$NumOfSubscribersPerChannel = 3,
         [Parameter(Mandatory = $false)]
-        [int]$TotalRunTimePublisherInMinutes = 1,
+        [int]$TotalRunTimePublisherInMinutes = 5,
 		[Parameter(Mandatory = $false)]
         [string]$SubscriberNamespace = 'redis-load-test-sub',
         [Parameter(Mandatory = $false)]
@@ -41,7 +41,7 @@ function CreateSubscriberInfra{
 	kubectl create namespace $SubscriberNamespace
 	kubectl apply -f redis-load-app.yaml -n $SubscriberNamespace
     kubectl scale deployments redis-app -n $SubscriberNamespace --replicas=$TotalSubscriberPods
-    $RunningNumOfPods = $(kubectl get pods -n $Namespace --field-selector status.phase=Running).count - 1
+    $RunningNumOfPods = $(kubectl get pods -n $SubscriberNamespace --field-selector status.phase=Running).count - 1
     while ($TotalSubscriberPods -ne $RunningNumOfPods) {
         Write-Host "Subscribers Pods are in-progress"
         Start-Sleep -s 10

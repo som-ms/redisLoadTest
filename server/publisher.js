@@ -51,7 +51,6 @@ publisher.on('connect', function () {
 })
 
 
-
 publisher.on('error', (err) => {
   var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err.message, "channelId": channelName };
   client.trackEvent({ name: "redisPubConnError", properties: propertySet });
