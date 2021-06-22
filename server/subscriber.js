@@ -10,7 +10,13 @@ const appInsights = require('applicationinsights');
 appInsights.setup(appInsightKey).start();
 appInsights.defaultClient.context.tags[appInsights.defaultClient.context.keys.cloudRole] = "Role1";
 var client = appInsights.defaultClient;
-var logFile = parentPath + channelName + "_" + subscriberId + "_log.txt";
+var logFile = "/tmp/sub/" + channelName + "_" + subscriberId + "_log.txt";
+const fs = require('fs');
+function writeToFile(message) {
+    fs.appendFileSync(logFile, JSON.stringify(message));
+    fs.appendFileSync(logFile, "\n");
+}
+
 const nodes = [
     {
         port: port,
@@ -37,107 +43,162 @@ const sub = new Redis.Cluster(
     }
 );
 
+sub.on('reconnecting', function () {
+    console.log("reconnecting")
+    var propertySet = { "errorMessage": "Reconnecting redis", "descriptiveMessage": "Redis reconnection event called", "channelId": channelName, "subscriberId": subscriberId };
+    client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
+    client.trackMetric({ name: "redisSubReconnect", value: 1.0 });
+    writeToFile(propertySet);
+})
+
 sub.on('ready', function () {
+    console.log("ready")
     var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection ready. Starting execution", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
-
+    writeToFile(propertySet);
     executeAfterReady();
 });
 
 sub.on('connect', function () {
+    console.log("connect")
     var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection established", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
+    writeToFile(propertySet);
 })
 
 sub.on("error", (err) => {
+    console.log("error")
     var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err.message, "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnError", properties: propertySet });
+    writeToFile(propertySet);
 })
+
+
+
 
 function executeAfterReady() {
     sub.subscribe(channelName, (err, count) => {
         if (err) {
+            console.log("error subscribing")
             var propertySet = { "errorMessage": "couldn't subscribe to channel", "descriptiveMessage": err.message, "channelId": channelName };
             client.trackEvent({ name: "redisSubConnError", properties: propertySet });
+            writeToFile(propertySet);
         } else {
+            console.log("subscribed")
             var propertySet = { "errorMessage": "null", "descriptiveMessage": "subscribed to channel", "channelId": channelName, "subscriberId": subscriberId };
             client.trackEvent({ name: "redisSubConn", properties: propertySet });
+            writeToFile(propertySet);
         }
     });
 }
 
-process.on('unhandledRejection', error => {
-    var propertySet = { "errorMessage": error.message, "channelId": channelName, "subscriberId": subscriberId };
-    client.trackEvent({ name: "unHandledErrorSub", properties: propertySet });
-});
 
-var currentMaximum = -1;        // to make initial condition true
 var totalMessageReceived = 0;   // count of total messages received
+
+var min = -1, max = 0;
+var currentElements = [];
+var duplicates = 0, lostMessages = 0;
+var currentSet = new Set();
+var messageBatchReceived = 0;
+var messageReceiveStarted = false;
 
 sub.on("message", (channel, message) => {
     var messageObject = JSON.parse(message);
-    validateLastMessageSignal(messageObject);   // if last message, exit
-    totalMessageReceived++;                         // else increase totalMessageReceived count
-    sendMetric(currentMaximum, totalMessageReceived);
-    validateMessageOrder(messageObject);
-
+    totalMessageReceived++;
+    messageBatchReceived++;
+    checkDuplicates(messageObject.content); // check duplicate message
+    checkIfLost(messageObject.content);     // check lost message
+    updateMax(messageObject.content);   // update min,max
+    messageReceiveStarted = true;
 })
 
-function sendMetric(currentMaximum, totalMessageReceived) {
-    if (totalMessageReceived % 100 == 0) {
-        currentMaximum++;
-        var propertySet = { "currentMaximum": currentMaximum, "MessageBatchReceived": 100, "totalMessageReceived": totalMessageReceived, "channelId": channelName, "subscriberId": subscriberId };
-        var metrics = { "MessageBatchReceived": 100, "totalMessageReceived": totalMessageReceived };
-        client.trackEvent({ name: "InProgressSub", properties: propertySet, measurements: metrics });
-    }
-}
+setInterval(sendMetric, constants.METRIC_SENT_INTERVAL);
 
-function validateMessageOrder(messageObject) {
-    // message should be in order
-    var outOfOrder = false;
-    var messageReceived = messageObject.content;
-    var propertySet;
-    // if message received is smaller than currentMaximum - OUT OF ORDER  ( current maximum won't be changed)
-    // if message received and currentMaximum has diff greater than 1 - OUT OF ORDER (currentMaximum = message.content)
-    if (messageReceived < currentMaximum) {
-        outOfOrder = true;
-        propertySet = { "errorMessage": "Message is out of order", "currentMaximum": currentMaximum, "expectedNextInOrder": currentMaximum + 1, "totalMessageReceived": totalMessageReceived, "content": messageObject, "channelId": channelName, "subscriberId": subscriberId };
-    } else if (Math.abs(messageReceived - currentMaximum) > 1) {
-        outOfOrder = true;
-        propertySet = { "errorMessage": "Message is out of order", "currentMaximum": currentMaximum, "expectedNextInOrder": currentMaximum + 1, "totalMessageReceived": totalMessageReceived, "content": messageObject, "channelId": channelName, "subscriberId": subscriberId };
-        currentMaximum = messageReceived;
-    }
-
-    if (outOfOrder) {
-        client.trackEvent({ name: "messageOrder", properties: propertySet });
+function checkDuplicates(content) {
+    if (currentSet.has(content)) {
+        duplicates++;
     } else {
-        currentMaximum = messageReceived;
+        currentSet.add(content);
+    }
+}
+
+function checkIfLost(content) {
+    if (content < min) {
+        lostMessages++;
+    }
+}
+
+function updateMax(content) {
+
+    if (content > max) {
+        max = content;
     }
 
 }
 
-function validateLastMessageSignal(messageObject) {
-    if (messageObject.signal == "kill") {
-        validateTotalMessage(messageObject.content);
-        var messageBatchReceived = totalMessageReceived % 100;
-        var propertySet = { "message": "Subscriber finished", "currentMaximum": currentMaximum, "MessageBatchReceived": messageBatchReceived, "totalMessageReceived": totalMessageReceived, "channelId": channelName, "subscriberId": subscriberId };
-        var metrics = { "MessageBatchReceived": messageBatchReceived, "totalMessageReceived": totalMessageReceived };
-        client.trackEvent({ name: "subEventCompletion", properties: propertySet, measurements: metrics });
+function sendMetric() {
 
-        process.exit();
+    if (messageReceiveStarted) {
+
+        var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": lostMessages, "duplicateMessages": duplicates, "messageBatchReceived" : messageBatchReceived };
+        client.trackMetric({ name: "lostMessages", value: lostMessages });
+        client.trackMetric({ name: "duplicateMessages", value: duplicates });
+        client.trackMetric({ name: "MessageBatchReceived", messageBatchReceived });
+
+        writeToFile(propertySet);
+        resetValues();      // this event can be sent separately
     }
+
 }
 
-function validateTotalMessage(expectedCount) {
-    if (expectedCount > totalMessageReceived) {
-        var propertySet = { "errorMessage": "Data Lost", "currentMaximum": currentMaximum, "ExpectedCount": expectedCount, "totalMessageReceived": totalMessageReceived, "channelId": channelName, "subscriberId": subscriberId };
-        client.trackEvent({ name: "totalDataValidation", properties: propertySet });
-
-    } else if (expectedCount < totalMessageReceived) {
-        var propertySet = { "errorMessage": "Data Duplication", "currentMaximum": currentMaximum, "ExpectedCount": expectedCount, "totalMessageReceived": totalMessageReceived, "channelId": channelName, "subscriberId": subscriberId };
-        client.trackEvent({ name: "totalDataValidation", properties: propertySet });
-    } else {
-        var propertySet = { "errorMessage": "null", "currentMaximum": currentMaximum, "ExpectedCount": expectedCount, "totalMessageReceived": totalMessageReceived, "channelId": channelName, "subscriberId": subscriberId };
-        client.trackEvent({ name: "totalDataValidation", properties: propertySet });
-    }
+function resetValues() {
+    duplicates = 0;
+    lostMessages = 0;
+    min = max;
+    max = min;
+    messageBatchReceived = 0;
+    currentSet.clear();
 }
+
+process.on('SIGTERM', () => {
+    console.log("terminating gracefully sigterm");
+    sendMetric();
+    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
+    console.log("totalMessageReceived" + totalMessageReceived);
+    writeToFile("TotalMessageReceived: " + totalMessageReceived);
+})
+
+process.on('SIGINT', () => {
+    console.log("terminating gracefully sigint");
+    sendMetric();
+    client.trackEvent({ name: "totalMessageReceivedCount", value: totalMessageReceived });
+    console.log("totalMessageReceived" + totalMessageReceived);
+    writeToFile("TotalMessageReceived: " + totalMessageReceived);
+})
+
+process.on('SIGQUIT', () => {
+    console.log("terminating gracefully sigquit");
+    sendMetric();
+    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
+    console.log("totalMessageReceived" + totalMessageReceived);
+    writeToFile("TotalMessageReceived: " + totalMessageReceived);
+})
+
+
+process.on('SIGKILL', () => {
+    console.log("terminating gracefully sigkill");
+    sendMetric();
+    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
+    console.log("totalMessageReceived" + totalMessageReceived);
+    writeToFile("TotalMessageReceived: " + totalMessageReceived);
+})
+
+process.on('SIGHUP', () => {
+    console.log("terminating gracefully sigHUP");
+    sendMetric();
+    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
+    console.log("totalMessageReceived" + totalMessageReceived);
+    writeToFile("TotalMessageReceived: " + totalMessageReceived);
+})
+
+

@@ -1,7 +1,7 @@
-function Message(channel, content, signal) {
+function Message(channel, content) {
         this.channel = channel;
         this.content = content;
-        this.signal = signal;
+        // this.signal = signal;
         this.clientId = "474ed958-c86d-49d8-859b-4b7f5d006127";
         this.clientSequenceNumber = "1";
         this.minimumSequenceNumber = 15;
