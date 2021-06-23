@@ -10,12 +10,6 @@ const appInsights = require('applicationinsights');
 appInsights.setup(appInsightKey).start();
 appInsights.defaultClient.context.tags[appInsights.defaultClient.context.keys.cloudRole] = "Role1";
 var client = appInsights.defaultClient;
-var logFile = "/tmp/sub/" + channelName + "_" + subscriberId + "_log.txt";
-const fs = require('fs');
-function writeToFile(message) {
-    // fs.appendFileSync(logFile, JSON.stringify(message));
-    // fs.appendFileSync(logFile, "\n");
-}
 
 const nodes = [
     {
@@ -47,26 +41,22 @@ sub.on('reconnecting', function () {
     var propertySet = { "errorMessage": "Reconnecting redis", "descriptiveMessage": "Redis reconnection event called", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
     client.trackMetric({ name: "redisSubReconnect", value: 1.0 });
-    writeToFile(propertySet);
 })
 
 sub.on('ready', function () {
     var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection ready. Starting execution", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
-    writeToFile(propertySet);
     executeAfterReady();
 });
 
 sub.on('connect', function () {
     var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection established", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
-    writeToFile(propertySet);
 })
 
 sub.on("error", (err) => {
     var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err.message, "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnError", properties: propertySet });
-    writeToFile(propertySet);
 })
 
 
@@ -77,11 +67,9 @@ function executeAfterReady() {
         if (err) {
             var propertySet = { "errorMessage": "couldn't subscribe to channel", "descriptiveMessage": err.message, "channelId": channelName };
             client.trackEvent({ name: "redisSubConnError", properties: propertySet });
-            writeToFile(propertySet);
         } else {
             var propertySet = { "errorMessage": "null", "descriptiveMessage": "subscribed to channel", "channelId": channelName, "subscriberId": subscriberId };
             client.trackEvent({ name: "redisSubConn", properties: propertySet });
-            writeToFile(propertySet);
         }
     });
 }
@@ -113,7 +101,6 @@ function checkDuplicates(content) {
         lostMessages++;
     } else {
         if (currentSet.has(content)) {  // same message within the time window, consider as  duplicate
-            writeToFile("duplicate element is: " + content);
             duplicates++;
         } else {
             currentSet.add(content);
@@ -148,20 +135,9 @@ function sendMetric() {
         var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": currentWindowLost, "duplicateMessages": currentWindowDuplicates, "messageBatchReceived": currentMessageBatchReceived, "min": min, "max": max };
         var metrics = { "lostMessages": currentWindowLost, "duplicateMessages": currentWindowDuplicates, "MessageBatchReceived": currentMessageBatchReceived }
         client.trackEvent({ name: "subEvents", properties: propertySet, measurements: metrics })
-        printSetValues();
-        writeToFile(propertySet);
         resetValues();      // this event can be sent separately
     }
 
-}
-
-
-function printSetValues(){
-    var val = '';
-    for(item of currentSet.values()){
-        val += item + ' , ';
-    }
-    writeToFile(val)
 }
 
 function resetValues() {
@@ -180,21 +156,18 @@ function resetValues() {
 process.on('SIGTERM', () => {
     sendMetric();
     client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    writeToFile("TotalMessageReceived: " + totalMessageReceived);
     process.exit();
 })
 
 process.on('SIGINT', () => {
     sendMetric();
     client.trackEvent({ name: "totalMessageReceivedCount", value: totalMessageReceived });
-    writeToFile("TotalMessageReceived: " + totalMessageReceived);
     process.exit();
 })
 
 process.on('SIGQUIT', () => {
     sendMetric();
     client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    writeToFile("TotalMessageReceived: " + totalMessageReceived);
     process.exit();
 })
 
@@ -202,14 +175,12 @@ process.on('SIGQUIT', () => {
 process.on('SIGKILL', () => {
     sendMetric();
     client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    writeToFile("TotalMessageReceived: " + totalMessageReceived);
     process.exit();
 })
 
 process.on('SIGHUP', () => {
     sendMetric();
     client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    writeToFile("TotalMessageReceived: " + totalMessageReceived);
     process.exit();
 })
 

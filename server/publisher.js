@@ -8,7 +8,6 @@ const { port, pwd, appInsightKey } = require('./config');
 appInsights.setup(appInsightKey).start();
 var client = appInsights.defaultClient;
 //client.commonProperties.channelId = channelName
-const fs = require('fs')
 var currentBatchCount = 0;
 var totalMessagesSent = 0;
 const nodes = [
@@ -39,15 +38,10 @@ const publisher = new Redis.Cluster(
 );
 
 
-function writeToFile(message) {
-  // fs.appendFileSync("/tmp/pub/" + channelName + "_log.txt", JSON.stringify(message));
-  // fs.appendFileSync("/tmp/pub/" + channelName + "_log.txt", "\n");
-}
 // once redis is ready to take commands, we start execution else it pops up an error saying "Cluster isn't ready and enableOfflineQueue options is false"
 publisher.on('ready', function () {
   var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection ready. Starting execution", "channelId": channelName };
   client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
-  writeToFile(propertySet)
   startExecution();
 });
 
@@ -55,20 +49,17 @@ publisher.on('reconnecting', function () {
   var propertySet = { "errorMessage": "Reconnecting redis", "descriptiveMessage": "Redis reconnection event called", "channelId": channelName };
   client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
   client.trackMetric({ name: "redisPubReconnect", value: 1.0 });
-  writeToFile(propertySet);
 })
 
 publisher.on('connect', function () {
   var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection established", "channelId": channelName };
   client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
-  writeToFile(propertySet);
 })
 
 
 publisher.on('error', (err) => {
   var propertySet = { "errorMessage": "Something went wrong connecting redis", "descriptiveMessage": err.message, "channelId": channelName };
   client.trackEvent({ name: "redisPubConnError", properties: propertySet });
-  writeToFile(propertySet);
 })
 
 
@@ -82,13 +73,10 @@ function publishMessage(channelName) {
 }
 
 function sendMetric() {
-  console.log("diff is: " + currentBatchCount);
   var propertySet = {"TotalMessagesSent": totalMessagesSent}
   var metric = {"MessageBatchSent" : currentBatchCount}
   client.trackEvent({name : "PubMetric", properties : propertySet, measurements : metric});
   
-  writeToFile(propertySet);
-  writeToFile(metric);
   currentBatchCount=0;
 
 }
@@ -99,47 +87,32 @@ function startExecution() {
 }
 
 process.on('SIGTERM', () => {
-  console.log("terminating gracefully sigterm");
   sendMetric();
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  console.log("totalmessagesentcount" + totalMessagesSent);
-  writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
   process.exit();
 })
 
 process.on('SIGINT', () => {
-  console.log("terminating gracefully sigint");
   sendMetric();
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  console.log("totalmessagesentcount" + totalMessagesSent);
-  writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
   process.exit();
 })
 
 process.on('SIGQUIT', () => {
-  console.log("terminating gracefully sigquit");
   sendMetric();
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  console.log("totalmessagesentcount" + totalMessagesSent);
-  writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
   process.exit();
 })
 
 
 process.on('SIGKILL', () => {
-  console.log("terminating gracefully sigkill");
   sendMetric();
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  console.log("totalmessagesentcount" + totalMessagesSent);
-  writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
   process.exit();
 })
 
 process.on('SIGHUP', () => {
-  console.log("terminating gracefully sigHUP");
   sendMetric();
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  console.log("totalmessagesentcount" + totalMessagesSent);
-  writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
   process.exit();
 })
