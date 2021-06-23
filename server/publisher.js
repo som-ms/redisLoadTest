@@ -40,8 +40,8 @@ const publisher = new Redis.Cluster(
 
 
 function writeToFile(message) {
-  fs.appendFileSync("/tmp/pub/" + channelName + "_log.txt", JSON.stringify(message));
-  fs.appendFileSync("/tmp/pub/" + channelName + "_log.txt", "\n");
+  // fs.appendFileSync("/tmp/pub/" + channelName + "_log.txt", JSON.stringify(message));
+  // fs.appendFileSync("/tmp/pub/" + channelName + "_log.txt", "\n");
 }
 // once redis is ready to take commands, we start execution else it pops up an error saying "Cluster isn't ready and enableOfflineQueue options is false"
 publisher.on('ready', function () {
@@ -76,23 +76,23 @@ function publishMessage(channelName) {
   // console.log("publishing message")
   var messageObj = new Message(channelName, totalMessagesSent);     // content is same as totalMessageSent
   publisher.publish(channelName, JSON.stringify(messageObj));
+
   totalMessagesSent++;
   currentBatchCount++;
-
-  // sendMetric(totalMessagesSent);
 }
 
 function sendMetric() {
   console.log("diff is: " + currentBatchCount);
-  client.trackMetric({ name: "MessageBatchSent", value: currentBatchCount });
+  var propertySet = {"TotalMessagesSent": totalMessagesSent}
+  var metric = {"MessageBatchSent" : currentBatchCount}
+  client.trackEvent({name : "PubMetric", properties : propertySet, measurements : metric});
   
-  writeToFile("MessageBatchSent:" + currentBatchCount );
-  writeToFile("TotalMessagesSent: " + totalMessagesSent);
+  writeToFile(propertySet);
+  writeToFile(metric);
   currentBatchCount=0;
 
 }
 
-// var TotalRunTimePublisherInSeconds = timeInMinutes * 60 * 1000;
 function startExecution() {
   const t = setInterval(publishMessage, constants.MESSAGE_PUBLISH_INTERVAL, channelName);
   setInterval(sendMetric, constants.METRIC_SENT_INTERVAL); // send metric after every 1 minute
@@ -104,6 +104,7 @@ process.on('SIGTERM', () => {
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
   console.log("totalmessagesentcount" + totalMessagesSent);
   writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
+  process.exit();
 })
 
 process.on('SIGINT', () => {
@@ -112,6 +113,7 @@ process.on('SIGINT', () => {
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
   console.log("totalmessagesentcount" + totalMessagesSent);
   writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
+  process.exit();
 })
 
 process.on('SIGQUIT', () => {
@@ -120,6 +122,7 @@ process.on('SIGQUIT', () => {
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
   console.log("totalmessagesentcount" + totalMessagesSent);
   writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
+  process.exit();
 })
 
 
@@ -129,6 +132,7 @@ process.on('SIGKILL', () => {
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
   console.log("totalmessagesentcount" + totalMessagesSent);
   writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
+  process.exit();
 })
 
 process.on('SIGHUP', () => {
@@ -137,4 +141,5 @@ process.on('SIGHUP', () => {
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
   console.log("totalmessagesentcount" + totalMessagesSent);
   writeToFile("TotalMessagesSent: " + totalMessagesSent + "\n");
+  process.exit();
 })
