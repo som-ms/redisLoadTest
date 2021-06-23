@@ -1,4 +1,4 @@
-FROM node:14-alpine
+FROM node:16
 # create app directory
 # RUN mkdir -p  /server
 # RUN mkdir -p ./server
@@ -13,4 +13,4 @@ RUN npm install
 COPY . .
 
 EXPOSE 8080
-# CMD ["node", "subscriber.js"]
+EntryPoint ["node", "./server/trigger.js > run.log"]

@@ -1,16 +1,46 @@
 const { spawn } = require('child_process');
-
-const channelName = Math.random().toString(36).substring(7);
+var os = require("os");
+var hostname=os.hostname();
+console.log("Pod HostName is " + hostname);
+const randomString= Math.random().toString(36).substring(7);
+var channelName = hostname +"-" +randomString;
 console.log("channel Name: " + channelName)
 for (let i = 0; i < 10; i++) {
-    spawn('node', ['./subscriber.js', channelName, i]);
-    //console.log("subscriber started" + i)
+ const node=spawn('node', ['./server/subscriber.js', channelName, i]);
+	node.stdout.on('data', (data) => {
+    console.log(`stdout: ${data}`);
+});
+
+node.stderr.on('data', (data) => {
+  console.error(`stderr: ${data}`);
+});
+
+node.on('close', (code) => {
+  console.log(`child process exited with code ${code}`);
+});
+    console.log("subscriber started" + i)
 }
 
 
-setTimeout(startPublisher, 20000);
+setTimeout(startPublisher, 40000);
 
 function startPublisher(){
-    spawn('node', ['./publisher.js', channelName, 35]);  // time to publish
-    //console.log("publisher started")
+   const pub= spawn('node', ['./server/publisher.js', channelName]);
+
+     
+   
+	pub.stdout.on('data', (data) => {
+  console.log(`stdout: ${data}`);
+});
+
+pub.stderr.on('data', (data) => {
+  console.error(`stderr: ${data}`);
+});
+
+pub.on('close', (code) => {
+  console.log(`child process exited with code ${code}`);
+});
+
+	 // time to publish
+    console.log("publisher started")
 }
