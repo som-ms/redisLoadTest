@@ -121,6 +121,8 @@ function updateLostMessages() {         // after a metric window expires, consid
         lostMessages += (totalExpected - totalPresent);
     }
 
+    lostMessages = lostMessages - outOfOrder;
+
 }
 
 function sendMetric() {
@@ -128,14 +130,11 @@ function sendMetric() {
     if (messageReceiveStarted) {
         updateLostMessages();
 
-        var currentWindowLost = lostMessages - prevLostMessages;
-        var currentWindowDuplicates = duplicates - prevDuplicates;
-        var currentMessageBatchReceived = messageBatchReceived - prevMessageBatchReceived;
         prevLostMessages = lostMessages;
         prevDuplicates = duplicates;
         prevMessageBatchReceived = messageBatchReceived;
-        var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": currentWindowLost, "duplicateMessages": currentWindowDuplicates, "messageBatchReceived": currentMessageBatchReceived, "min": min, "max": max };
-        var metrics = { "lostMessages": currentWindowLost, "duplicateMessages": currentWindowDuplicates, "MessageBatchReceived": currentMessageBatchReceived,"OutOfOrder": outOfOrder }
+        var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": lostMessages, "duplicateMessages": duplicates, "messageBatchReceived": messageBatchReceived, "min": min, "max": max };
+        var metrics = { "lostMessages": lostMessages, "duplicateMessages": duplicates, "MessageBatchReceived": messageBatchReceived,"OutOfOrder": outOfOrder }
         client.trackEvent({ name: "subEvents", properties: propertySet, measurements: metrics })
         resetValues();      // this event can be sent separately
     }
@@ -150,9 +149,6 @@ function resetValues() {
     // max = min;
     messageBatchReceived = 0;
     currentSet.clear();
-    prevDuplicates = 0;
-    prevLostMessages = 0;
-    prevMessageBatchReceived = 0;
     outOfOrder=0;
 }
 
