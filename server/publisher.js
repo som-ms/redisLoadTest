@@ -86,6 +86,7 @@ function startExecution() {
   setInterval(sendMetric, constants.METRIC_SENT_INTERVAL); // send metric after every 1 minute
 }
 
+/*
 process.on('SIGTERM', () => {
   sendMetric();
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
@@ -116,3 +117,4 @@ process.on('SIGHUP', () => {
   client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
   process.exit();
 })
+*/

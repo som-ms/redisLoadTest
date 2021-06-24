@@ -153,6 +153,7 @@ function resetValues() {
     prevMessageBatchReceived = 0;
 }
 
+/*
 process.on('SIGTERM', () => {
     sendMetric();
     client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
@@ -183,5 +184,5 @@ process.on('SIGHUP', () => {
     client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
     process.exit();
 })
-
+*/
 
