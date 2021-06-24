@@ -81,6 +81,7 @@ var min = -1, max = 0;
 var duplicates = 0, lostMessages = 0;
 var prevDuplicates = 0, prevLostMessages = 0;
 var prevMessageBatchReceived = 0;
+var outOfOrder=0;
 var currentSet = new Set();
 var messageBatchReceived = 0;
 var messageReceiveStarted = false;
@@ -98,7 +99,8 @@ setInterval(sendMetric, constants.METRIC_SENT_INTERVAL);
 
 function checkDuplicates(content) {
     if (content <= min) {            // old message received, consider as lost/out of order
-       client.trackMetric({name: "OutOfOrder" , value : 1.0})
+        outOfOrder++;
+       
     } else {
         if (currentSet.has(content)) {  // same message within the time window, consider as  duplicate
             duplicates++;
@@ -133,7 +135,7 @@ function sendMetric() {
         prevDuplicates = duplicates;
         prevMessageBatchReceived = messageBatchReceived;
         var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": currentWindowLost, "duplicateMessages": currentWindowDuplicates, "messageBatchReceived": currentMessageBatchReceived, "min": min, "max": max };
-        var metrics = { "lostMessages": currentWindowLost, "duplicateMessages": currentWindowDuplicates, "MessageBatchReceived": currentMessageBatchReceived }
+        var metrics = { "lostMessages": currentWindowLost, "duplicateMessages": currentWindowDuplicates, "MessageBatchReceived": currentMessageBatchReceived,"OutOfOrder": outOfOrder }
         client.trackEvent({ name: "subEvents", properties: propertySet, measurements: metrics })
         resetValues();      // this event can be sent separately
     }
@@ -151,6 +153,7 @@ function resetValues() {
     prevDuplicates = 0;
     prevLostMessages = 0;
     prevMessageBatchReceived = 0;
+    outOfOrder=0;
 }
 
 /*
