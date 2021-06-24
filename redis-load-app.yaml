@@ -1,4 +1,3 @@
-apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis-app
@@ -12,16 +11,16 @@ spec:
       labels:
         name: redis-app
     spec:
+      nodeSelector:
+        agentpool: redistest
       containers:
       - name: redis-app
-        image: loadgeneration.azurecr.io/redis-load-test-image
+        image: loadgeneration.azurecr.io/redisloadtestimage
         imagePullPolicy: Always
-        command: ["/bin/sh"]
-        args: ["-c", "while true; do echo done deploying redis-app; sleep 3600;done"]
         resources:
           requests:
-            cpu: 256m
-            memory: 500M
+            cpu: 250m
+            memory: 512M
           limits:
-            cpu: 256m
-            memory: 500M
+            cpu: 250m
+            memory: 512M

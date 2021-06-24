@@ -97,8 +97,8 @@ setInterval(sendMetric, constants.METRIC_SENT_INTERVAL);
 // setInterval(resetValues, constants.MESSAGE_ACCEPTANCE_TIME_WINDOW);
 
 function checkDuplicates(content) {
-    if (content <= min) {            // old message received, consider as lost
-        lostMessages++;
+    if (content <= min) {            // old message received, consider as lost/out of order
+       client.trackMetric({name: "OutOfOrder" , value : 1.0})
     } else {
         if (currentSet.has(content)) {  // same message within the time window, consider as  duplicate
             duplicates++;

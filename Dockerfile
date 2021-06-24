@@ -11,6 +11,4 @@ COPY package*.json /app
 RUN npm install
 
 COPY . .
-
-EXPOSE 8080
-EntryPoint ["node", "./server/trigger.js > run.log"]
+ENTRYPOINT [	"node", "./server/trigger.js"]
