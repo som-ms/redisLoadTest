@@ -13,7 +13,7 @@ var totalMessagesSent = 0;
 const nodes = [
   {
     port: port,
-    host: "fluidloadtest.redis.cache.windows.net"
+    host: "redisloadtestclusterenable.redis.cache.windows.net"
   }
 ]
 
@@ -27,7 +27,7 @@ const publisher = new Redis.Cluster(
     redisOptions: {
       family: 4,
       tls: {
-        servername: "fluidloadtest.redis.cache.windows.net"
+        servername: "redisloadtestclusterenable.redis.cache.windows.net"
       },
       showFriendlyErrorStack: true,
       enableAutoPipelining: true,
@@ -38,10 +38,12 @@ const publisher = new Redis.Cluster(
 );
 
 
+
 // once redis is ready to take commands, we start execution else it pops up an error saying "Cluster isn't ready and enableOfflineQueue options is false"
 publisher.on('ready', function () {
   var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection ready. Starting execution", "channelId": channelName };
   client.trackEvent({ name: "redisPubConnMsg", properties: propertySet });
+  console.log("ready")
   startExecution();
 });
 
@@ -62,9 +64,18 @@ publisher.on('error', (err) => {
   client.trackEvent({ name: "redisPubConnError", properties: propertySet });
 })
 
+publisher.on('close', function () {
+  var propertySet = { "errorMessage": "Redis server connection closed", "channelId": channelName };
+  client.trackEvent({ name: "redisPubConnClosed", properties: propertySet });
+  client.trackMetric({ name: "redisPubConnClosed", value: 1.0 })
+})
+
+process.on('unhandledRejection', error => {
+  var propertySet = { "errorMessage": error.message, "channelId": channelName };
+  client.trackEvent({ name: "unHandledErrorPub", properties: propertySet });
+});
 
 function publishMessage(channelName) {
-  // console.log("publishing message")
   var messageObj = new Message(channelName, totalMessagesSent);     // content is same as totalMessageSent
   publisher.publish(channelName, JSON.stringify(messageObj));
 
@@ -73,11 +84,11 @@ function publishMessage(channelName) {
 }
 
 function sendMetric() {
-  var propertySet = {"TotalMessagesSent": totalMessagesSent}
-  var metric = {"MessageBatchSent" : currentBatchCount}
-  client.trackEvent({name : "PubMetric", properties : propertySet, measurements : metric});
-  
-  currentBatchCount=0;
+  var propertySet = { "TotalMessagesSent": totalMessagesSent, "channelId": channelName }
+  var metric = { "MessageBatchSent": currentBatchCount }
+  client.trackEvent({ name: "PubMetric", properties: propertySet, measurements: metric });
+
+  currentBatchCount = 0;
 
 }
 
@@ -85,36 +96,3 @@ function startExecution() {
   const t = setInterval(publishMessage, constants.MESSAGE_PUBLISH_INTERVAL, channelName);
   setInterval(sendMetric, constants.METRIC_SENT_INTERVAL); // send metric after every 1 minute
 }
-
-/*
-process.on('SIGTERM', () => {
-  sendMetric();
-  client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  process.exit();
-})
-
-process.on('SIGINT', () => {
-  sendMetric();
-  client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  process.exit();
-})
-
-process.on('SIGQUIT', () => {
-  sendMetric();
-  client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  process.exit();
-})
-
-
-process.on('SIGKILL', () => {
-  sendMetric();
-  client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  process.exit();
-})
-
-process.on('SIGHUP', () => {
-  sendMetric();
-  client.trackEvent({ name: "TotalMessageSentCount", value: totalMessagesSent });
-  process.exit();
-})
-*/

@@ -5,16 +5,18 @@ var myargs = process.argv.slice(2);     // channelName, subscriberId
 var channelName = myargs[0];
 var subscriberId = myargs[1];
 const { port, pwd, appInsightKey } = require('./config');
+const fs = require('fs')
 
 const appInsights = require('applicationinsights');
+const MessageReceived = require('./MessageReceived');
 appInsights.setup(appInsightKey).start();
-appInsights.defaultClient.context.tags[appInsights.defaultClient.context.keys.cloudRole] = "Role1";
+// appInsights.defaultClient.context.tags[appInsights.defaultClient.context.keys.cloudRole] = "Role1";
 var client = appInsights.defaultClient;
 
 const nodes = [
     {
         port: port,
-        host: "fluidloadtest.redis.cache.windows.net"
+        host: "redisloadtestclusterenable.redis.cache.windows.net"
     }
 ]
 const sub = new Redis.Cluster(
@@ -27,7 +29,7 @@ const sub = new Redis.Cluster(
         redisOptions: {
             family: 4,
             tls: {
-                servername: "fluidloadtest.redis.cache.windows.net"
+                servername: "redisloadtestclusterenable.redis.cache.windows.net"
             },
             showFriendlyErrorStack: true,
             enableAutoPipelining: true,
@@ -36,6 +38,11 @@ const sub = new Redis.Cluster(
         }
     }
 );
+
+process.on('unhandledRejection', error => {
+    var propertySet = { "errorMessage": error.message, "channelId": channelName, "subscriberId": subscriberId };
+    client.trackEvent({ name: "unHandledErrorSub", properties: propertySet });
+});
 
 sub.on('reconnecting', function () {
     var propertySet = { "errorMessage": "Reconnecting redis", "descriptiveMessage": "Redis reconnection event called", "channelId": channelName, "subscriberId": subscriberId };
@@ -59,6 +66,12 @@ sub.on("error", (err) => {
     client.trackEvent({ name: "redisSubConnError", properties: propertySet });
 })
 
+sub.on('close', function() {
+    var propertySet = { "errorMessage": "Redis server connection closed", "channelId": channelName, "subscriberId": subscriberId };
+    client.trackEvent({ name: "redisSubConnClosed", properties: propertySet });
+    client.trackMetric({name : "redisSubConnClosed", value: 1.0})
+  })
+
 
 
 
@@ -77,111 +90,99 @@ function executeAfterReady() {
 
 var totalMessageReceived = 0;   // count of total messages received
 
-var min = -1, max = 0;
-var duplicates = 0, lostMessages = 0;
-var prevDuplicates = 0, prevLostMessages = 0;
-var prevMessageBatchReceived = 0;
-var outOfOrder=0;
-var currentSet = new Set();
 var messageBatchReceived = 0;
 var messageReceiveStarted = false;
+var totalExpected = 0, lostMessages = 0;
 
+var sequence = -1;
+var mySet = new Set();
+let myMap = new Map();
 sub.on("message", (channel, message) => {
     var messageObject = JSON.parse(message);
+    processMessage(messageObject);
     totalMessageReceived++;
     messageBatchReceived++;
-    checkDuplicates(messageObject.content); // check duplicate message
     messageReceiveStarted = true;
 })
 
-setInterval(sendMetric, constants.METRIC_SENT_INTERVAL);
-// setInterval(resetValues, constants.MESSAGE_ACCEPTANCE_TIME_WINDOW);
+function isNumberInSequence(content) {
+    if (content - sequence == 1) {
+        return true;
+    }
+    return false;
+}
 
-function checkDuplicates(content) {
-    if (content <= min) {            // old message received, consider as lost/out of order
-        outOfOrder++;
-       
+function processMessage(messageObject) {
+    if (isNumberInSequence(messageObject.content)) {
+        sequence++;
     } else {
-        if (currentSet.has(content)) {  // same message within the time window, consider as  duplicate
-            duplicates++;
+        var receivedMessage = new MessageReceived(messageObject.content, messageObject.timestamp);
+        mySet.add(receivedMessage);
+        myMap.set(receivedMessage.content, receivedMessage);
+    }
+}
+
+function processWindow(metricTimeStamp) {
+    let arr = Array.from(mySet);
+    // sort by timestamp
+    arr.sort(function (x, y) {
+        return x.timestamp - y.timestamp;
+    })
+
+    var currentBatch = 0;
+    var sequencePointerUpdated = false;
+    var max = -1;
+    for (let item of arr) {                   // for each item in set (contains messages out of sequence)
+        if (item.timestamp <= metricTimeStamp) {        // all elements where timestamp is smaller. it is an ordered set by insertion
+            if (item.content > sequence) {
+                currentBatch++;                     // find all numbers greater than current sequence pointer
+                if (item.content > max) {           // increase the max to create a new sequence pointer
+                    max = item.content;
+                    sequencePointerUpdated = true;
+                }
+            }
+            myMap.delete(item.content);             // content having values less than current sequence pointer
+            mySet.delete(item);                     // OR values which have been processed
         } else {
-            currentSet.add(content);
+            break;
         }
-        if (content > max) {            // update max to stretch right boundary
-            max = content;
+    }
+
+    if (sequencePointerUpdated) {
+        totalExpected = max - sequence;
+        lostMessages = totalExpected - currentBatch;
+
+        sequence = max;         // update sequence to max consecutive value available
+        var counter = sequence + 1;
+        while (myMap.has(counter)) {            // All values which are in sequence. all these values have greater timestamp than metricTimeStamp passed
+            sequence++;
+            mySet.delete(myMap.get(counter));
+            myMap.delete(counter);
+            counter++;
         }
     }
 
 }
 
-function updateLostMessages() {         // after a metric window expires, considering messages from publisher are in sequence calculate lost messages count
-    var totalPresent = currentSet.size;
-    var totalExpected = max - min;
-    if (totalPresent > 0 && totalExpected > totalPresent) {
-        lostMessages += (totalExpected - totalPresent);
-    }
 
-    lostMessages = lostMessages - outOfOrder;
-
-}
+setInterval(sendMetric, constants.METRIC_SENT_INTERVAL);
 
 function sendMetric() {
 
     if (messageReceiveStarted) {
-        updateLostMessages();
-
-        prevLostMessages = lostMessages;
-        prevDuplicates = duplicates;
-        prevMessageBatchReceived = messageBatchReceived;
-        var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": lostMessages, "duplicateMessages": duplicates, "messageBatchReceived": messageBatchReceived, "min": min, "max": max };
-        var metrics = { "lostMessages": lostMessages, "duplicateMessages": duplicates, "MessageBatchReceived": messageBatchReceived,"OutOfOrder": outOfOrder }
+        var metricTimeStamp = Date.now() - 60000;
+        processWindow(metricTimeStamp);
+        var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": lostMessages, "messageBatchReceived": messageBatchReceived, "channelId": channelName, "subscriberId": subscriberId };
+        var metrics = { "lostMessages": lostMessages, "MessageBatchReceived": messageBatchReceived }
         client.trackEvent({ name: "subEvents", properties: propertySet, measurements: metrics })
-        resetValues();      // this event can be sent separately
+        console.log("tracked event")
+        resetValues();
     }
 
 }
 
 function resetValues() {
-    // sendMetric();
-    duplicates = 0;
+    totalExpected = 0;
     lostMessages = 0;
-    min = max;          // setting up left boundary after metric time window expired
-    // max = min;
     messageBatchReceived = 0;
-    currentSet.clear();
-    outOfOrder=0;
 }
-
-/*
-process.on('SIGTERM', () => {
-    sendMetric();
-    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    process.exit();
-})
-
-process.on('SIGINT', () => {
-    sendMetric();
-    client.trackEvent({ name: "totalMessageReceivedCount", value: totalMessageReceived });
-    process.exit();
-})
-
-process.on('SIGQUIT', () => {
-    sendMetric();
-    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    process.exit();
-})
-
-
-process.on('SIGKILL', () => {
-    sendMetric();
-    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    process.exit();
-})
-
-process.on('SIGHUP', () => {
-    sendMetric();
-    client.trackEvent({ name: "TotalMessageReceivedCount", value: totalMessageReceived });
-    process.exit();
-})
-*/
-

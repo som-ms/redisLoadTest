@@ -8,7 +8,7 @@ function Message(channel, content) {
         this.referenceSequenceNumber = 17;
         this.sequenceNumber = 18;
         this.term = 1;
-        this.timestamp = 1623776103225;
+        this.timestamp = Date.now();
         this.type = "summarize";
         this.extraContent = "{\"handle\":\"5fc9f449-f58b-4a9a-9ad1-d0e8c3a54474\",\"head\":\"d6745912-3571-4b3f-957f-367bbd622f44\",\"message\":\"Summary @17:15\",\"parents\":[\"d6745912-3571-4b3f-957f-367bbd622f44\"]}";
 }
