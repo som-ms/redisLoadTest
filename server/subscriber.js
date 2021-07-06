@@ -5,7 +5,6 @@ var myargs = process.argv.slice(2);     // channelName, subscriberId
 var channelName = myargs[0];
 var subscriberId = myargs[1];
 const { port, pwd, appInsightKey } = require('./config');
-const fs = require('fs')
 
 const appInsights = require('applicationinsights');
 const MessageReceived = require('./MessageReceived');
@@ -13,31 +12,17 @@ appInsights.setup(appInsightKey).start();
 // appInsights.defaultClient.context.tags[appInsights.defaultClient.context.keys.cloudRole] = "Role1";
 var client = appInsights.defaultClient;
 
-const nodes = [
-    {
-        port: port,
-        host: "redisloadtestclusterenable.redis.cache.windows.net"
+const sub = new Redis({
+    port: port,
+    host: "redisclusterdisablep5.redis.cache.windows.net",
+    family: 4,
+    password: pwd,
+    connectTimeout: 20000,
+    tls: {
+        servername: "redisclusterdisablep5.redis.cache.windows.net"
     }
-]
-const sub = new Redis.Cluster(
-    nodes,
-    {
-        enableOfflineQueue: false,
-        enableReadyCheck: true,
-        slotsRefreshTimeout: 1000,
-        dnsLookup: (address, callback) => callback(null, address),
-        redisOptions: {
-            family: 4,
-            tls: {
-                servername: "redisloadtestclusterenable.redis.cache.windows.net"
-            },
-            showFriendlyErrorStack: true,
-            enableAutoPipelining: true,
-            connectTimeout: 20000,
-            password: pwd
-        }
-    }
-);
+});
+
 
 process.on('unhandledRejection', error => {
     var propertySet = { "errorMessage": error.message, "channelId": channelName, "subscriberId": subscriberId };
@@ -48,12 +33,12 @@ sub.on('reconnecting', function () {
     var propertySet = { "errorMessage": "Reconnecting redis", "descriptiveMessage": "Redis reconnection event called", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
     client.trackMetric({ name: "redisSubReconnect", value: 1.0 });
+    // console.log("reconnecting")
 })
 
 sub.on('ready', function () {
     var propertySet = { "errorMessage": "null", "descriptiveMessage": "Redis Connection ready. Starting execution", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
-    executeAfterReady();
 });
 
 sub.on('connect', function () {
@@ -66,26 +51,24 @@ sub.on("error", (err) => {
     client.trackEvent({ name: "redisSubConnError", properties: propertySet });
 })
 
-sub.on('close', function() {
+sub.on('close', function () {
     var propertySet = { "errorMessage": "Redis server connection closed", "channelId": channelName, "subscriberId": subscriberId };
     client.trackEvent({ name: "redisSubConnClosed", properties: propertySet });
-    client.trackMetric({name : "redisSubConnClosed", value: 1.0})
-  })
+    client.trackMetric({ name: "redisSubConnClosed", value: 1.0 })
+})
 
 
 
 
-function executeAfterReady() {
-    sub.subscribe(channelName, (err, count) => {
-        if (err) {
-            var propertySet = { "errorMessage": "couldn't subscribe to channel", "descriptiveMessage": err.message, "channelId": channelName };
-            client.trackEvent({ name: "redisSubConnError", properties: propertySet });
-        } else {
-            var propertySet = { "errorMessage": "null", "descriptiveMessage": "subscribed to channel", "channelId": channelName, "subscriberId": subscriberId };
-            client.trackEvent({ name: "redisSubConn", properties: propertySet });
-        }
-    });
-}
+sub.subscribe(channelName, (err, count) => {
+    if (err) {
+        var propertySet = { "errorMessage": "couldn't subscribe to channel", "descriptiveMessage": err.message, "channelId": channelName };
+        client.trackEvent({ name: "redisSubConnError", properties: propertySet });
+    } else {
+        var propertySet = { "errorMessage": "null", "descriptiveMessage": "subscribed to channel", "channelId": channelName, "subscriberId": subscriberId };
+        client.trackEvent({ name: "redisSubConn", properties: propertySet });
+    }
+});
 
 
 var totalMessageReceived = 0;   // count of total messages received
