@@ -105,7 +105,7 @@ function processMessage(messageObject) {
     }
 }
 
-function processWindow(metricTimeStamp) {
+function processWindow(leftlimit, rightLimit) {
     let arr = Array.from(mySet);
     // sort by timestamp
     arr.sort(function (x, y) {
@@ -116,7 +116,7 @@ function processWindow(metricTimeStamp) {
     var sequencePointerUpdated = false;
     var max = -1;
     for (let item of arr) {                   // for each item in set (contains messages out of sequence)
-        if (item.timestamp <= metricTimeStamp) {        // all elements where timestamp is smaller. it is an ordered set by insertion
+        if (item.timestamp <= rightLimit && item.timestamp > leftlimit) {        // all elements where timestamp is smaller. it is an ordered set by insertion
             if (item.content > sequence) {
                 currentBatch++;                     // find all numbers greater than current sequence pointer
                 if (item.content > max) {           // increase the max to create a new sequence pointer
@@ -134,16 +134,10 @@ function processWindow(metricTimeStamp) {
     if (sequencePointerUpdated) {
         totalExpected = max - sequence;
         lostMessages = totalExpected - currentBatch;
-
         sequence = max;         // update sequence to max consecutive value available
-        var counter = sequence + 1;
-        while (myMap.has(counter)) {            // All values which are in sequence. all these values have greater timestamp than metricTimeStamp passed
-            sequence++;
-            mySet.delete(myMap.get(counter));
-            myMap.delete(counter);
-            counter++;
-        }
     }
+    myMap.clear();
+    mySet.clear();
 
 }
 
@@ -153,8 +147,9 @@ setInterval(sendMetric, constants.METRIC_SENT_INTERVAL);
 function sendMetric() {
 
     if (messageReceiveStarted) {
-        var metricTimeStamp = Date.now() - 60000;
-        processWindow(metricTimeStamp);
+        var currentTime = Date.now();
+        var previousTime = currentTime - constants.METRIC_SENT_INTERVAL;
+        processWindow(previousTime, currentTime);
         var propertySet = { "totalMessageReceived": totalMessageReceived, "lostMessages": lostMessages, "messageBatchReceived": messageBatchReceived, "channelId": channelName, "subscriberId": subscriberId };
         var metrics = { "lostMessages": lostMessages, "MessageBatchReceived": messageBatchReceived }
         client.trackEvent({ name: "subEvents", properties: propertySet, measurements: metrics })
