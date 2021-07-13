@@ -11,7 +11,38 @@ const MessageReceived = require("./MessageReceived");
 appInsights.setup(appInsightKey).start();
 // appInsights.defaultClient.context.tags[appInsights.defaultClient.context.keys.cloudRole] = "Role1";
 var client = appInsights.defaultClient;
-
+const nodes = [
+  {
+    port: port,
+    host: "p4redis.redis.cache.windows.net",
+  },
+];
+const sub = new Redis.Cluster(nodes, {
+  showFriendlyErrorStack: true,
+  maxRetriesPerRequest: 3,
+  enableAutoPipelining: true,
+  connectTimeout: 20000,
+  password: pwd,
+  slotsRefreshTimeout: 5000,
+  enableOfflineQueue: false,
+  enableReadyCheck: false,
+  dnsLookup: (address, callback) => callback(null, address),
+  redisOptions: {
+    family: 4,
+    tls: {
+      servername: "p4redis.redis.cache.windows.net",
+    },
+    showFriendlyErrorStack: true,
+    maxRetriesPerRequest: 3,
+    enableAutoPipelining: true,
+    connectTimeout: 20000,
+    password: pwd,
+    slotsRefreshTimeout: 5000,
+    enableOfflineQueue: false,
+    enableReadyCheck: false,
+  },
+});
+/*
 const sub = new Redis({
   port: port,
   host: "p4redis.redis.cache.windows.net",
@@ -22,6 +53,7 @@ const sub = new Redis({
     servername: "p4redis.redis.cache.windows.net",
   },
 });
+*/
 
 process.on("unhandledRejection", (error) => {
   var propertySet = {
@@ -52,6 +84,7 @@ sub.on("ready", function () {
     subscriberId: subscriberId,
   };
   client.trackEvent({ name: "redisSubConnMsg", properties: propertySet });
+  executeAfterReady();
 });
 
 sub.on("connect", function () {
@@ -84,31 +117,32 @@ sub.on("close", function () {
   client.trackMetric({ name: "redisSubConnClosed", value: 1.0 });
 });
 
-sub.subscribe(channelName, (err, count) => {
-  if (err) {
-    var propertySet = {
-      errorMessage: "couldn't subscribe to channel",
-      descriptiveMessage: err.message,
-      channelId: channelName,
-    };
-    client.trackEvent({ name: "redisSubConnError", properties: propertySet });
-  } else {
-    var propertySet = {
-      errorMessage: "null",
-      descriptiveMessage: "subscribed to channel",
-      channelId: channelName,
-      subscriberId: subscriberId,
-    };
-    client.trackEvent({ name: "redisSubConn", properties: propertySet });
-  }
-});
-
+function executeAfterReady() {
+  sub.subscribe(channelName, (err, count) => {
+    if (err) {
+      var propertySet = {
+        errorMessage: "couldn't subscribe to channel",
+        descriptiveMessage: err.message,
+        channelId: channelName,
+      };
+      client.trackEvent({ name: "redisSubConnError", properties: propertySet });
+    } else {
+      var propertySet = {
+        errorMessage: "null",
+        descriptiveMessage: "subscribed to channel",
+        channelId: channelName,
+        subscriberId: subscriberId,
+      };
+      client.trackEvent({ name: "redisSubConn", properties: propertySet });
+    }
+  });
+}
 var totalMessageReceived = 0; // count of total messages received
 
 var messageBatchReceived = 0;
 var messageReceiveStarted = false;
 var lostMessages = 0;
-
+var sequence = -1;
 var mySet = new Set();
 let myMap = new Map();
 sub.on("message", (channel, message) => {
@@ -135,7 +169,7 @@ function processMessage(messageObject) {
       var storedMessage = myMap.get(messageObject.content);
       var currentTime = Date.now();
       if (
-        currentTime - storedMessage.timestamp >
+        currentTime - messageObject.timestamp >
         constants.MESSAGE_EXPIRY_INTERVAL
       ) {
         // currentTimestamp -
@@ -144,8 +178,9 @@ function processMessage(messageObject) {
       mySet.delete(storedMessage);
       myMap.delete(storedMessage.content);
     } else {
-      sequence = messageObject.content;         // update sequence
-      for (var i = sequence + 1; i <= messageObject.content; i++) {     // add all missing elements in set and map
+      sequence = messageObject.content; // update sequence
+      for (var i = sequence + 1; i <= messageObject.content; i++) {
+        // add all missing elements in set and map
         var receivedMessage = new MessageReceived(i, messageObject.timestamp);
         mySet.add(receivedMessage);
         myMap.set(receivedMessage.content, receivedMessage);
@@ -181,21 +216,23 @@ function sendMetric() {
 }
 
 function processStoredElements(currentTime) {
-  let arr = Array.from(mySet);
-  // sort by timestamp
-  arr.sort(function (x, y) {
-    return x.timestamp - y.timestamp;
+//   let arr = Array.from(mySet);
+//   // sort by timestamp
+//   arr.sort(function (x, y) {
+//     return x.timestamp - y.timestamp;
+//   });
+
+  mySet.forEach( item => {
+    if (currentTime - item.timestamp > constants.MESSAGE_EXPIRY_INTERVAL) {
+        lostMessages++;
+        var messageSaved = myMap.get(item.content);
+        mySet.delete(messageSaved);
+        myMap.delete(item.content);
+      } else {
+          break;
+      }
   });
-  for (let item of arr) {
-    if (item.timestamp - currentTime > constants.MESSAGE_EXPIRY_INTERVAL) {
-      lostMessages++;
-      var messageSaved = myMap.get(item.content);
-      mySet.delete(messageSaved);
-      myMap.delete(item.content);
-    } else {
-      break; // since elements are sorted by timestamp
-    }
-  }
+ 
 }
 
 function resetValues() {
