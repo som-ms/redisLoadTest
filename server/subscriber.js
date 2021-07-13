@@ -216,21 +216,13 @@ function sendMetric() {
 }
 
 function processStoredElements(currentTime) {
-//   let arr = Array.from(mySet);
-//   // sort by timestamp
-//   arr.sort(function (x, y) {
-//     return x.timestamp - y.timestamp;
-//   });
-
   mySet.forEach( item => {
     if (currentTime - item.timestamp > constants.MESSAGE_EXPIRY_INTERVAL) {
         lostMessages++;
         var messageSaved = myMap.get(item.content);
         mySet.delete(messageSaved);
         myMap.delete(item.content);
-      } else {
-          break;
-      }
+      } 
   });
  
 }
