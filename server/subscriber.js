@@ -162,6 +162,10 @@ function isNumberInSequence(content) {
 
 function processMessage(messageObject) {
   if (isNumberInSequence(messageObject.content)) {
+    var currentTime = Date.now();
+    if(currentTime - messageObject.timestamp > constants.MESSAGE_EXPIRY_INTERVAL) {
+          lostMessages++;
+       }  
     sequence++;
   } else {
     if (messageObject.content < sequence) {
@@ -178,13 +182,13 @@ function processMessage(messageObject) {
       mySet.delete(storedMessage);
       myMap.delete(storedMessage.content);
     } else {
-      sequence = messageObject.content; // update sequence
       for (var i = sequence + 1; i <= messageObject.content; i++) {
         // add all missing elements in set and map
         var receivedMessage = new MessageReceived(i, messageObject.timestamp);
         mySet.add(receivedMessage);
         myMap.set(receivedMessage.content, receivedMessage);
       }
+      sequence = messageObject.content; // update sequence
     }
   }
 }
@@ -222,7 +226,7 @@ function processStoredElements(currentTime) {
         var messageSaved = myMap.get(item.content);
         mySet.delete(messageSaved);
         myMap.delete(item.content);
-      } 
+      }
   });
  
 }
